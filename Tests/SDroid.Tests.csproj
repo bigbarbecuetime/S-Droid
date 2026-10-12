@@ -1,0 +1,23 @@
+<Project Sdk="MSTest.Sdk/3.6.4">
+
+	<!--
+		Tests for the editor-independent half of the plugin (Code/Core): settings, manifest, SDK
+		lookup, APK packaging, runtime bundle, adb and keytool. No s&box install needed.
+		Run with: dotnet test Tests
+	-->
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>disable</Nullable>
+		<LangVersion>latest</LangVersion>
+		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+		<!-- Process and file APIs are platform-neutral here -->
+		<NoWarn>CA1416</NoWarn>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Compile Include="..\Code\Core\*.cs" LinkBase="Core" />
+	</ItemGroup>
+
+</Project>

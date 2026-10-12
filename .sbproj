@@ -1,0 +1,24 @@
+{
+  "Title": "S&Droid",
+  "Type": "tool",
+  "Org": "local",
+  "Ident": "sdroid",
+  "Tags": null,
+  "Schema": 1,
+  "HasAssets": false,
+  "AssetsPath": "/assets",
+  "Resources": null,
+  "MenuResources": null,
+  "HasCode": true,
+  "CodePath": "/code",
+  "PackageReferences": [],
+  "EditorReferences": null,
+  "Metadata": {
+    "Compiler": {
+      "AssemblyReferences": [
+        "Sandbox.Tools"
+      ]
+    },
+    "CsProjName": "SDroid"
+  }
+}

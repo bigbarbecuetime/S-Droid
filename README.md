@@ -1,0 +1,101 @@
+# S&Droid
+
+An s&box editor plugin that exports games for Android and Meta Quest. It builds a signed, zipaligned `arm64-v8a` APK, with the manifest entries Quest 2 / Pro / 3 / 3S need for VR. `Runtime/` holds the work towards running the s&box engine on Android at all.
+
+It's a plugin: it needs an s&box install, not a clone of the engine.
+
+## Install
+
+Copy or clone this repository into your project's `Libraries/` folder, or anywhere the editor loads tool libraries from. Then open **Settings > Android Export...** in the editor.
+
+## Read this first
+
+**s&box doesn't run on Android yet.** The native engine (Source 2) is closed source and ships only for `win64`, `linuxsteamrt64` and `osx`, with no Android or ARM64 build. On Quest, the x86-64 Linux engine has to run under a translator, FEX. VR is OpenXR (through the engine's `Facepunch.XR` layer). Quest's OpenXR runtime is an Android library that an x86-64 glibc process can't load, so immersive VR also needs a bridge.
+
+The exporter does the packaging, the part that works today. The engine runtime it packs is still being built (see [Runtime](#runtime)).
+
+Point **Runtime Directory** at a folder like this:
+
+```
+lib/arm64-v8a/libsbox.so          <- loaded by NativeActivity (name = Native Library Name)
+lib/arm64-v8a/libopenxr_loader.so <- Khronos loader >= 1.0.34, if not linked statically (VR)
+lib/arm64-v8a/*.so                <- everything else the runtime loads
+assets/...                        <- optional, merged into the APK (engine core content etc.)
+```
+
+## What ends up in the APK
+
+| Path | Content |
+|---|---|
+| `AndroidManifest.xml`, `resources.arsc` | from `aapt2 link` |
+| `lib/arm64-v8a/*.so` | runtime libs, stored uncompressed and page aligned (`extractNativeLibs=false`) |
+| `assets/sbox/android.json` | `AndroidRuntimeManifest`: name, ident, package, build date, `IsVRProject` |
+| `assets/sbox/game/.bin/*.dll` | the project's compiled assemblies |
+| `assets/sbox/game/**` | the project's assets (what `PackageManifest.BuildFromAssets` finds) |
+| `assets/**` | the runtime bundle's own assets |
+
+The runtime reads these out of the APK. That contract is the Android counterpart of `StandaloneManifest`.
+
+## Quest manifest
+
+Based on Meta's [native manifest](https://developers.meta.com/horizon/documentation/native/android/mobile-native-manifest/), [OpenXR](https://developers.meta.com/horizon/documentation/native/android/mobile-openxr) and [hand tracking](https://developers.meta.com/horizon/documentation/native/android/mobile-hand-tracking/) pages:
+
+- `android.hardware.vr.headtracking` required, version 1
+- launcher categories `com.oculus.intent.category.VR` and `org.khronos.openxr.intent.category.IMMERSIVE_HMD`
+- `com.oculus.supportedDevices` from the device checkboxes
+- landscape, fullscreen black theme, `singleTask`, non-resizeable activity
+- min and target SDK 32 (the **Quest 3 Preset** button sets these)
+- optional hand tracking (`oculus.software.handtracking` plus `com.oculus.permission.HAND_TRACKING`), passthrough (`com.oculus.feature.PASSTHROUGH`, optional) and `metavr:uses-metavr-sdk` levels
+
+Not verified against a headset: the passthrough feature name came from a developer forum post rather than Meta's docs, and one third-party guide spells the hand tracking feature `oculus.software.hand-tracking`.
+
+## Requirements
+
+- Android SDK with build-tools (`aapt2`, `zipalign`, `apksigner`) and a platform. Found through `ANDROID_HOME`, `ANDROID_SDK_ROOT` or the default install folders, or set **Sdk Path**.
+- A JDK on `PATH` or `JAVA_HOME`, used only to create `~/.android/debug.keystore` if you have no keystore.
+- `adb` (SDK platform-tools) for **Export and Run on Device**. On a Quest, turn on developer mode and accept the USB debugging prompt.
+
+## Limits
+
+- Compilation uses the public `EditorUtility.Projects.Compile`, so the whitelist stays on and the `STANDALONE` symbol isn't defined, unlike the Windows exporter.
+- Content is deflated into the APK as-is (libraries are stored). Large games need expansion files or asset delivery, which isn't implemented.
+- The default signing key is the Android debug key. Store builds need your own keystore (**Keystore Path**, alias and passwords).
+
+## Runtime
+
+`Runtime/` runs the x86-64 Linux engine on Android. Status:
+
+| Where | How | Result |
+|---|---|---|
+| x86-64 Android 12L VM (Bliss OS on QEMU) | engine natively, from `adb shell` | dedicated server loads the `spacewars` test game |
+| arm64 Linux VM (QEMU, Neoverse-N1) | engine through FEX 2610 | dedicated server loads `spacewars`, 3 of 3 runs |
+| arm64 Android device | `Runtime/fex/device-test.sh`, inside FEXDroid's app sandbox | not run yet |
+| inside an app on x86-64 Android | `Runtime/host` | blocked: the app seccomp filter kills glibc's `access()` |
+
+To try a device (a phone with an Adreno GPU, or a Quest 3 in developer mode):
+
+```sh
+# on x86-64 Linux (WSL2 works) with s&box's game folder set up, and strace installed
+Runtime/fex/make-payload.sh <path to s&box game folder> unittest/addons/spacewars/.sbproj /tmp/sbox-payload
+# fexdroid-legacy.apk from https://github.com/cobrabm12/fexdroid/releases (debuggable, carries FEX and an Android-patched glibc)
+Runtime/fex/device-test.sh fexdroid-legacy.apk /tmp/sbox-payload
+```
+
+Success is a logcat line `game.load success local.spacewars#local`.
+
+Under FEX, CoreCLR needs both `DOTNET_INTERNAL_ThreadSuspendInjection=0` and `DOTNET_EnableWriteXorExecute=0`. Without them, signal-based thread suspension and double-mapped JIT code crash it during startup. The engine's natives are built with `-mavx`, so any emulator must implement AVX correctly. Google's Android emulator doesn't without KVM.
+
+## Engine patches
+
+`engine-patches/` holds engine fixes found along the way, to be sent upstream to [Facepunch/sbox-public](https://github.com/Facepunch/sbox-public). The plugin doesn't need them:
+
+- Standalone games read their manifest from `standalone.json` where the executable has no PE resources (Linux, Android).
+- The dedicated server no longer throws when a local project has no `Libraries` folder. Until that's upstream, `make-payload.sh` adds an empty one.
+
+## Tests
+
+```sh
+dotnet test Tests
+```
+
+The tests cover `Code/Core`: settings validation, the manifest, SDK lookup, APK assembly and compression, the runtime bundle, and adb and keytool handling. They need the .NET 10 SDK and no s&box install. `Code/Editor` (the window and the export step) needs the editor runtime and has no automated tests.

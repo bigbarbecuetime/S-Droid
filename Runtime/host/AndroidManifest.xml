@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+	s&box runtime host: runs the x86-64 Linux engine from the app's files directory.
+	targetSdk 28 so the app may execute files it wrote (W^X for app data starts at 29).
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+	package="game.sbox.runtime"
+	android:versionCode="1"
+	android:versionName="0.1">
+
+	<uses-sdk android:minSdkVersion="26" android:targetSdkVersion="28" />
+	<uses-permission android:name="android.permission.INTERNET" />
+
+	<application
+		android:label="s&amp;box runtime"
+		android:debuggable="true"
+		android:allowBackup="false"
+		android:extractNativeLibs="true">
+		<activity
+			android:name=".RuntimeActivity"
+			android:exported="true"
+			android:configChanges="orientation|screenSize|keyboardHidden">
+			<intent-filter>
+				<action android:name="android.intent.action.MAIN" />
+				<category android:name="android.intent.category.LAUNCHER" />
+			</intent-filter>
+		</activity>
+	</application>
+</manifest>

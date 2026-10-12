@@ -1,0 +1,197 @@
+From 6078c473303453863ba58c26546d7ea3d72f23ab Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 11 Oct 2026 22:59:54 +0000
+Subject: [PATCH] Run standalone and dedicated server games off Windows
+
+- Standalone: read the manifest and project config from standalone.json on
+  platforms whose executables have no PE resources (Linux, Android)
+- Dedicated server: loading a local .sbproj no longer throws when the project
+  has no Libraries folder
+- Android exporter: copy APK entries without a stream factory (CA2000)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MmKbPyv2FFQWEedBjmgLWR
+---
+ .../Platform/Standalone/Standalone.cs         | 57 ++++++++++++++++-
+ .../Sandbox.GameInstance/GameInstanceDll.cs   |  5 +-
+ .../Standalone/StandaloneIdentityTests.cs     | 64 +++++++++++++++++++
+ 3 files changed, 121 insertions(+), 5 deletions(-)
+ create mode 100644 engine/Tests/Sandbox.Test.Unit/Standalone/StandaloneIdentityTests.cs
+
+diff --git a/engine/Sandbox.Engine/Platform/Standalone/Standalone.cs b/engine/Sandbox.Engine/Platform/Standalone/Standalone.cs
+index d8f038e5..8fbe8495 100644
+--- a/engine/Sandbox.Engine/Platform/Standalone/Standalone.cs
++++ b/engine/Sandbox.Engine/Platform/Standalone/Standalone.cs
+@@ -25,6 +25,13 @@ public static class Standalone
+ 	/// </summary>
+ 	internal const string ProjectConfigResourceName = "STANDALONE_PROJECT";
+ 
++	/// <summary>
++	/// Where Linux and Android builds keep what Windows builds put in the executable's resources: the
++	/// manifest and project config, in the game's root folder. An ELF apphost has no resource section
++	/// to carry them. <c>SBOX_STANDALONE_IDENTITY</c> points somewhere else.
++	/// </summary>
++	internal const string IdentityFileName = "standalone.json";
++
+ 	/// <summary>
+ 	/// If running in standalone, contains the properties of the standalone game
+ 	/// </summary>
+@@ -53,12 +60,59 @@ public static class Standalone
+ 	/// </summary>
+ 	internal static void LoadFromExecutable()
+ 	{
++		if ( !OperatingSystem.IsWindows() )
++		{
++			LoadFromIdentityFile();
++			return;
++		}
++
+ 		var manifestJson = ReadResource( ManifestResourceName );
+ 		ProjectConfigJson = ReadResource( ProjectConfigResourceName );
+ 
+ 		SetupFromManifest( JsonSerializer.Deserialize<StandaloneManifest>( manifestJson ) );
+ 	}
+ 
++	static void LoadFromIdentityFile()
++	{
++		var path = Environment.GetEnvironmentVariable( "SBOX_STANDALONE_IDENTITY" );
++		if ( string.IsNullOrEmpty( path ) )
++			path = Path.Combine( Environment.CurrentDirectory, IdentityFileName );
++
++		if ( !File.Exists( path ) )
++			throw new FileNotFoundException( $"No standalone identity at '{path}' - it wasn't produced by the standalone exporter" );
++
++		var (manifest, projectJson) = ParseIdentity( File.ReadAllText( path ) );
++		ProjectConfigJson = projectJson;
++		SetupFromManifest( manifest );
++	}
++
++	/// <summary>
++	/// Read <see cref="IdentityFileName"/>: <c>{ "Manifest": { ... }, "Project": { ... } }</c>, where
++	/// Project is the game's <c>.sbproj</c> as exported.
++	/// </summary>
++	internal static (StandaloneManifest Manifest, string ProjectJson) ParseIdentity( string json )
++	{
++		using var document = JsonDocument.Parse( json );
++		var root = document.RootElement;
++
++		if ( !root.TryGetProperty( "Manifest", out var manifest ) || manifest.ValueKind != JsonValueKind.Object )
++			throw new InvalidDataException( "Standalone identity has no Manifest object" );
++
++		if ( !root.TryGetProperty( "Project", out var project ) || project.ValueKind != JsonValueKind.Object )
++			throw new InvalidDataException( "Standalone identity has no Project object" );
++
++		return (manifest.Deserialize<StandaloneManifest>(), project.GetRawText());
++	}
++
++	/// <summary>
++	/// The inverse of <see cref="ParseIdentity"/>, for exporters.
++	/// </summary>
++	internal static string WriteIdentity( StandaloneManifest manifest, string projectJson )
++	{
++		using var project = JsonDocument.Parse( projectJson );
++		return JsonSerializer.Serialize( new { Manifest = manifest, Project = project.RootElement }, new JsonSerializerOptions { WriteIndented = true } );
++	}
++
+ 	[DllImport( "kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode )]
+ 	private static extern IntPtr FindResource( IntPtr hModule, string lpName, IntPtr lpType );
+ 
+@@ -75,9 +129,6 @@ public static class Standalone
+ 
+ 	private static string ReadResource( string name )
+ 	{
+-		if ( !OperatingSystem.IsWindows() )
+-			throw new PlatformNotSupportedException( "Standalone games are currently exported for Windows only" );
+-
+ 		// The main module - the exe itself, which is where the exporter put the resources
+ 		var module = IntPtr.Zero;
+ 
+diff --git a/engine/Sandbox.GameInstance/GameInstanceDll.cs b/engine/Sandbox.GameInstance/GameInstanceDll.cs
+index ff98700e..c45d595e 100644
+--- a/engine/Sandbox.GameInstance/GameInstanceDll.cs
++++ b/engine/Sandbox.GameInstance/GameInstanceDll.cs
+@@ -970,8 +970,9 @@ internal partial class GameInstanceDll : Engine.IGameInstanceDll
+ 
+ 			var libraries = Path.Combine( project.RootDirectory.FullName, "Libraries" );
+ 
+-			// We should iterate all available libraries and add their projects
+-			foreach ( var folder in Directory.EnumerateDirectories( libraries ) )
++			// We should iterate all available libraries and add their projects (a game needn't have any)
++			var libraryFolders = Directory.Exists( libraries ) ? Directory.EnumerateDirectories( libraries ) : [];
++			foreach ( var folder in libraryFolders )
+ 			{
+ 				var configs = Directory.EnumerateFiles( folder, "*.sbproj" ).ToArray();
+ 				if ( configs.Length != 1 ) continue;
+diff --git a/engine/Tests/Sandbox.Test.Unit/Standalone/StandaloneIdentityTests.cs b/engine/Tests/Sandbox.Test.Unit/Standalone/StandaloneIdentityTests.cs
+new file mode 100644
+index 00000000..ebd7656a
+--- /dev/null
++++ b/engine/Tests/Sandbox.Test.Unit/Standalone/StandaloneIdentityTests.cs
+@@ -0,0 +1,64 @@
++using Sandbox;
++using System;
++using System.IO;
++using System.Text.Json;
++
++namespace StandaloneTests;
++
++[TestClass]
++public class StandaloneIdentityTests
++{
++	const string Project = """{"Title":"Space Wars","Ident":"spacewars","Org":"local","Type":"game","Metadata":{"ControlModes":{"VR":true}}}""";
++
++	[TestMethod]
++	public void RoundTrips()
++	{
++		var manifest = new StandaloneManifest
++		{
++			Name = "Space Wars",
++			Ident = "local.spacewars",
++			ExecutableName = "spacewars",
++			AppId = 480,
++			BuildDate = new DateTime( 2026, 10, 11, 12, 0, 0, DateTimeKind.Utc ),
++			IsVRProject = true,
++		};
++
++		var (back, projectJson) = Standalone.ParseIdentity( Standalone.WriteIdentity( manifest, Project ) );
++
++		Assert.AreEqual( "local.spacewars", back.Ident );
++		Assert.AreEqual( "Space Wars", back.Name );
++		Assert.AreEqual( 480ul, back.AppId );
++		Assert.AreEqual( manifest.BuildDate, back.BuildDate );
++		Assert.IsTrue( back.IsVRProject );
++
++		// The project config comes back as JSON with the same content, nested objects included
++		using var expected = JsonDocument.Parse( Project );
++		using var actual = JsonDocument.Parse( projectJson );
++		Assert.AreEqual( expected.RootElement.GetProperty( "Ident" ).GetString(), actual.RootElement.GetProperty( "Ident" ).GetString() );
++		Assert.IsTrue( actual.RootElement.GetProperty( "Metadata" ).GetProperty( "ControlModes" ).GetProperty( "VR" ).GetBoolean() );
++	}
++
++	[TestMethod]
++	[DataRow( """{"Project":{}}""" )]
++	[DataRow( """{"Manifest":{}}""" )]
++	[DataRow( """{"Manifest":"x","Project":{}}""" )]
++	[DataRow( """{"Manifest":{},"Project":"{}"}""" )]
++	public void MissingOrWrongSectionsAreRejected( string json )
++	{
++		Assert.ThrowsException<InvalidDataException>( () => Standalone.ParseIdentity( json ) );
++	}
++
++	[TestMethod]
++	public void NotJsonIsRejected()
++	{
++		// JsonDocument throws an internal subtype, so ThrowsException<JsonException> (exact type) can't match
++		try
++		{
++			Standalone.ParseIdentity( "not json" );
++			Assert.Fail( "expected a JsonException" );
++		}
++		catch ( JsonException )
++		{
++		}
++	}
++}
+-- 
+2.43.0
+
