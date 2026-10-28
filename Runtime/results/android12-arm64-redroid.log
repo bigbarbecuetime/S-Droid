@@ -1,0 +1,23 @@
+$ cd $FXD_FILES/sbox/game && FEX_ROOTFS=$FXD_FILES/sbox/x86root HOME=$FXD_FILES/sbox/home DOTNET_INTERNAL_ThreadSuspendInjection=0 DOTNET_EnableWriteXorExecute=0 timeout 10800 $FXD_ROOT/usr/bin/FEX ./sbox-server +game unittest/addons/spacewars/.sbproj 2>&1
+10:23:39 Console  Welcome to the s&box Dedicated server (0000000)
+10:23:41 Console  Submit any issues to https://github.com/facepunch/sbox-public/issues
+10:23:41 Console  Initializing s&box..
+10:44:14 engine/R Error loading resource file "model.shader_c" (Error: ERROR_FILEOPEN: File not found)
+10:44:18 engine/R Error loading resource file "emissive.shader_c" (Error: ERROR_FILEOPEN: File not found)
+Fontconfig error: Cannot load default config file: No such file: (null)
+10:47:44 Generic  Loading game 'local.spacewars#local'
+10:58:07 engine/R Error loading resource file "textures/generated/imagefile/d37de1d183748425.vtex_c" (Error: ERROR_FILEOPEN: File not found)
+10:58:09 engine/R Error loading resource file "textures/generated/imagefile/2b63d97a2e258d72.vtex_c" (Error: ERROR_FILEOPEN: File not found)
+10:58:09 engine/R Error loading resource file "textures/generated/imagefile/7c96311cb51575bf.vtex_c" (Error: ERROR_FILEOPEN: File not found)
+10:58:10 engine/R Error loading resource file "textures/generated/imagefile/ef868e7e2c100cb7.vtex_c" (Error: ERROR_FILEOPEN: File not found)
+11:01:01 Generic  game.load success local.spacewars#local 796390ms [start=394, teardown=139, reset=576546, fetch=4431, install=1389, assemblies=14448, resources=193782, fonts=3088, scene=2100]
+11:01:15 engine/R Error loading resource file "sounds/tools/sfm/denyundo.vsnd_c" (Error: ERROR_FILEOPEN: File not found) - from sounds/player_use_fail.sound
+
+# process tree at game.load (adb shell ps):
+12
+arm64-v8a
+   1497     108 u0_a70       ro.cobrabm.fexdroid
+   1904    1497 u0_a70       sh
+   1906    1904 u0_a70       timeout
+   1907    1906 u0_a70       sbox-server
+   1909       1 u0_a70       FEXServer

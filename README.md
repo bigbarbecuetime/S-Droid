@@ -67,12 +67,32 @@ Not verified against a headset: the passthrough feature name came from a develop
 
 | Where | How | Result |
 |---|---|---|
-| x86-64 Android 12L VM (Bliss OS on QEMU) | engine natively, from `adb shell` | dedicated server loads the `spacewars` test game |
-| arm64 Linux VM (QEMU, Neoverse-N1) | engine through FEX 2610 | dedicated server loads `spacewars`, 3 of 3 runs |
-| arm64 Android device | `Runtime/fex/device-test.sh`, inside FEXDroid's app sandbox | not run yet |
+| **arm64 Android 12 app** (Redroid in an arm64 VM) | `Runtime/fex/device-test.sh`: engine through FEX inside FEXDroid's app sandbox | **dedicated server loads `spacewars`** (`game.load success`, engine at Facepunch master `d3048a7b`) |
+| arm64 Linux VM (QEMU, Neoverse-N1) | engine through FEX 2610 | dedicated server loads `spacewars` |
+| x86-64 Android 12L VM (Bliss OS on QEMU) | engine natively, from `adb shell` | dedicated server loads `spacewars` |
+| Quest 3 / arm64 phone | `Runtime/fex/device-test.sh` | not run yet |
 | inside an app on x86-64 Android | `Runtime/host` | blocked: the app seccomp filter kills glibc's `access()` |
 
-To try a device (a phone with an Adreno GPU, or a Quest 3 in developer mode):
+Redroid applies no app seccomp filter, so that pass doesn't cover Android's syscall filtering. On a real device, FEXDroid's patched glibc handles it, and it still needs testing there.
+
+### Test without a device
+
+`Runtime/arm-android-vm/` runs arm64 Android on any x86-64 Linux machine, with no KVM needed. It boots an arm64 Ubuntu VM in QEMU, then runs Redroid (Android in a container) inside it:
+
+Build the payload with `make-payload.sh` first (see [Test on a device](#test-on-a-device)), then:
+
+```sh
+Runtime/arm-android-vm/start-vm.sh ~/arm-vm &              # then copy guest-redroid.sh in and run it with sudo
+adb connect 127.0.0.1:5556
+SBOX_TIMEOUT=10800 SBOX_SCREEN_OFF=1 ADB_SERIAL=127.0.0.1:5556 \
+  Runtime/fex/device-test.sh fexdroid-legacy.apk /tmp/sbox-payload
+```
+
+Everything runs under software emulation, so it's slow: about 40 minutes to `game.load` on 4 host cores. On real hardware only FEX's 10-20% overhead remains. A log of that run is in `Runtime/results/android12-arm64-redroid.log`.
+
+### Test on a device
+
+A phone with an Adreno GPU, or a Quest 3 in developer mode:
 
 ```sh
 # on x86-64 Linux (WSL2 works) with s&box's game folder set up, and strace installed

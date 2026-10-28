@@ -7,6 +7,8 @@
 #
 # Engine args default to loading the spacewars test game. ADB_SERIAL picks the device and
 # SBOX_TIMEOUT (seconds, default 1200) bounds the run: emulated devices need far longer.
+# SBOX_SCREEN_OFF=1 turns the screen off once the engine starts, so an emulator's software
+# rendering of FEXDroid's UI stops competing with the engine (the app stays top, not cached).
 set -eu
 APK=$1; PAYLOAD=$2; shift 2
 ARGS=${*:-+game unittest/addons/spacewars/.sbproj}
@@ -53,6 +55,10 @@ CMD="cd \$FXD_FILES/sbox/game && FEX_ROOTFS=\$FXD_FILES/sbox/x86root HOME=\$FXD_
 $ADB logcat -c
 $ADB shell am force-stop $PKG
 $ADB shell "am start -n $PKG/.MainActivity --es action cmd --es cmd '$CMD'" > /dev/null
+if [ "${SBOX_SCREEN_OFF:-0}" = 1 ]; then
+	sleep 30
+	$ADB shell input keyevent SLEEP
+fi
 
 for _ in $(seq 1 $(( TIMEOUT / 5 + 60 ))); do
 	sleep 5
