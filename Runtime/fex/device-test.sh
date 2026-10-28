@@ -19,11 +19,12 @@ $ADB shell 'getprop ro.product.model; getprop ro.build.version.release; uname -m
 echo "== install FEXDroid"
 $ADB install -r "$APK"
 
-echo "== copy the payload into the app ($(du -sh "$PAYLOAD" | cut -f1))"
-$ADB shell rm -rf /data/local/tmp/sbox-payload
-$ADB push "$PAYLOAD" /data/local/tmp/sbox-payload > /dev/null
-$ADB shell "run-as $PKG sh -c 'rm -rf files/sbox && mkdir -p files && cp -r /data/local/tmp/sbox-payload files/sbox && chmod -R u+rwX files/sbox'"
-$ADB shell rm -rf /data/local/tmp/sbox-payload
+echo "== stream the payload into the app ($(du -sh "$PAYLOAD" | cut -f1))"
+# Straight into the app's files with tar over adb exec-in: no staging copy in /data/local/tmp, which
+# would need twice the payload's size on the device.
+$ADB shell "run-as $PKG sh -c 'rm -rf files/sbox && mkdir -p files/sbox'"
+tar -C "$PAYLOAD" -cf - . | $ADB exec-in run-as $PKG sh -c 'tar -xf - -C files/sbox && chmod -R u+rwX files/sbox'
+$ADB shell "run-as $PKG ls files/sbox/game/sbox-server" > /dev/null || { echo "payload didn't arrive"; exit 1; }
 
 echo "== run inside the app sandbox: $ARGS"
 # FEXDroid's developer intent runs a shell command with its Linux environment (FXD_ROOT, FXD_FILES,

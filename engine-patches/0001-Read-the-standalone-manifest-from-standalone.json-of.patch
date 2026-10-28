@@ -1,21 +1,18 @@
-From 6078c473303453863ba58c26546d7ea3d72f23ab Mon Sep 17 00:00:00 2001
+From bcff6090522d615cf3d66ddc41a93196fe1e8399 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 11 Oct 2026 22:59:54 +0000
-Subject: [PATCH] Run standalone and dedicated server games off Windows
+Subject: [PATCH] Read the standalone manifest from standalone.json off Windows
 
-- Standalone: read the manifest and project config from standalone.json on
-  platforms whose executables have no PE resources (Linux, Android)
-- Dedicated server: loading a local .sbproj no longer throws when the project
-  has no Libraries folder
-- Android exporter: copy APK entries without a stream factory (CA2000)
+Linux and Android executables have no PE resources, so standalone games on
+those platforms read the manifest and project config from standalone.json in
+the game root (or SBOX_STANDALONE_IDENTITY) instead.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01MmKbPyv2FFQWEedBjmgLWR
 ---
  .../Platform/Standalone/Standalone.cs         | 57 ++++++++++++++++-
- .../Sandbox.GameInstance/GameInstanceDll.cs   |  5 +-
  .../Standalone/StandaloneIdentityTests.cs     | 64 +++++++++++++++++++
- 3 files changed, 121 insertions(+), 5 deletions(-)
+ 2 files changed, 118 insertions(+), 3 deletions(-)
  create mode 100644 engine/Tests/Sandbox.Test.Unit/Standalone/StandaloneIdentityTests.cs
 
 diff --git a/engine/Sandbox.Engine/Platform/Standalone/Standalone.cs b/engine/Sandbox.Engine/Platform/Standalone/Standalone.cs
@@ -106,22 +103,6 @@ index d8f038e5..8fbe8495 100644
  		// The main module - the exe itself, which is where the exporter put the resources
  		var module = IntPtr.Zero;
  
-diff --git a/engine/Sandbox.GameInstance/GameInstanceDll.cs b/engine/Sandbox.GameInstance/GameInstanceDll.cs
-index ff98700e..c45d595e 100644
---- a/engine/Sandbox.GameInstance/GameInstanceDll.cs
-+++ b/engine/Sandbox.GameInstance/GameInstanceDll.cs
-@@ -970,8 +970,9 @@ internal partial class GameInstanceDll : Engine.IGameInstanceDll
- 
- 			var libraries = Path.Combine( project.RootDirectory.FullName, "Libraries" );
- 
--			// We should iterate all available libraries and add their projects
--			foreach ( var folder in Directory.EnumerateDirectories( libraries ) )
-+			// We should iterate all available libraries and add their projects (a game needn't have any)
-+			var libraryFolders = Directory.Exists( libraries ) ? Directory.EnumerateDirectories( libraries ) : [];
-+			foreach ( var folder in libraryFolders )
- 			{
- 				var configs = Directory.EnumerateFiles( folder, "*.sbproj" ).ToArray();
- 				if ( configs.Length != 1 ) continue;
 diff --git a/engine/Tests/Sandbox.Test.Unit/Standalone/StandaloneIdentityTests.cs b/engine/Tests/Sandbox.Test.Unit/Standalone/StandaloneIdentityTests.cs
 new file mode 100644
 index 00000000..ebd7656a

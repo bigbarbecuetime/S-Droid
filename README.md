@@ -89,8 +89,9 @@ Under FEX, CoreCLR needs both `DOTNET_INTERNAL_ThreadSuspendInjection=0` and `DO
 
 `engine-patches/` holds engine fixes found along the way, to be sent upstream to [Facepunch/sbox-public](https://github.com/Facepunch/sbox-public). The plugin doesn't need them:
 
-- Standalone games read their manifest from `standalone.json` where the executable has no PE resources (Linux, Android).
-- The dedicated server no longer throws when a local project has no `Libraries` folder. Until that's upstream, `make-payload.sh` adds an empty one.
+- Standalone games read their manifest from `standalone.json` where the executable has no PE resources (Linux, Android). Rebased onto Facepunch master `d3048a7b`.
+
+A fix for the dedicated server throwing on local projects without a `Libraries` folder was also here. Facepunch has since made the same fix upstream. `make-payload.sh` still adds an empty `Libraries` folder for older engines.
 
 ## Tests
 
