@@ -9,7 +9,8 @@
 # A dedicated server payload loads the spacewars test game by default. A standalone payload
 # (make-payload.sh --standalone) opens its game in FEXDroid's X display, shown in the app.
 # ADB_SERIAL picks the device and SBOX_TIMEOUT (seconds, default 1200) bounds the run: emulated
-# devices need far longer. SBOX_SCREEN_OFF=1 (server only) turns the screen off once the engine
+# devices need far longer. SBOX_SKIP_PUSH=1 reuses the payload a previous run left on the device.
+# SBOX_SCREEN_OFF=1 (server only) turns the screen off once the engine
 # starts, so an emulator's software rendering of FEXDroid's UI stops competing with the engine.
 # The script returns once the game has loaded; a standalone game keeps running for SBOX_TIMEOUT.
 set -eu
@@ -28,6 +29,9 @@ echo "== device"
 $ADB shell 'getprop ro.product.model; getprop ro.build.version.release; uname -m; getconf PAGESIZE'
 [ "$($ADB shell getconf PAGESIZE | tr -d '\r')" = 4096 ] || { echo "FEX needs 4 KB pages"; exit 1; }
 
+if [ "${SBOX_SKIP_PUSH:-0}" = 1 ]; then
+	echo "== using the payload already on the device"
+else
 echo "== install FEXDroid"
 $ADB install -r "$APK"
 
@@ -36,6 +40,7 @@ echo "== stream the payload into the app ($(du -sh "$PAYLOAD" | cut -f1))"
 # would need twice the payload's size on the device.
 $ADB shell "run-as $PKG sh -c 'rm -rf files/sbox && mkdir -p files/sbox'"
 tar -C "$PAYLOAD" -cf - . | $ADB exec-in run-as $PKG sh -c 'tar -xf - -C files/sbox && chmod -R u+rwX files/sbox'
+fi
 $ADB shell "run-as $PKG ls files/sbox/game/$EXE" > /dev/null || { echo "payload didn't arrive"; exit 1; }
 
 echo "== FEXDroid's own rootfs"
@@ -89,7 +94,7 @@ $ADB shell "am start -f 0x10008000 -n $PKG/.MainActivity --es action cmd --es cm
 until $ADB logcat -d -s fexdroid-linux:I | grep -q 'X11-unix/X0'; do sleep 5; done
 until $ADB shell 'ps -A' | grep -q ' Xvfb$'; do
 	$ADB shell "am start -f 0x10008000 -n $PKG/.MainActivity --es action x" > /dev/null
-	sleep 30
+	sleep 90 # a second start while the first is still coming up kills both X servers
 done
 
 LOG="run-as $PKG cat files/sbox/game/logs/$EXE.log"
