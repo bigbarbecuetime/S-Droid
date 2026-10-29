@@ -82,22 +82,26 @@ if [ "$EXE" = sbox-server ]; then
 	exit 0
 fi
 
-# A standalone game needs FEXDroid's X server, which runs while its display screen is open. The
-# command (which outlives the screen it was started from) waits for the server's socket, then the
-# display screen opens and starts it. Output goes to files/sbox/run.log, the engine's own log to
-# files/sbox/game/logs/FEX.log (named after the process, which FEX is). Mesa's X11 swapchain must
-# copy frames in software, as FEXDroid has its own X clients do: the server has no DRI3, and
-# without it presents wait for events that never come.
-CMD="until grep -qa @/tmp/.X11-unix/X0 /proc/net/unix; do sleep 2; done; cd \$FXD_FILES/sbox/game && DISPLAY=:0 MESA_VK_WSI_DEBUG=sw DOTNET_ROOT=\$PWD/bin/dotnet $ENV timeout $TIMEOUT \$FXD_ROOT/usr/bin/FEX ./$EXE $ARGS > ../run.log 2>&1; echo [exit \$?] >> ../run.log"
+# A standalone game needs FEXDroid's X server, which runs while its display screen is open, and
+# whose bridge to the screen only survives a cold start of that screen: handing over from another
+# activity stops it. So: read FEXDroid's Linux environment with one command, start the display
+# cold, then start the game as the app (run-as) with that environment. (run-as processes don't get
+# the app's seccomp filter; the server run above covers the engine under FEX in the app itself.)
+$ADB shell "am start -n $PKG/.MainActivity --es action cmd --es cmd 'env'" > /dev/null
+until $ADB logcat -d -s fexdroid-linux:I | grep -q '^.*fexdroid-linux: FXD_ROOT='; do sleep 5; done
+FXD_ENV=$($ADB logcat -d -s fexdroid-linux:I | sed -n 's/^.*fexdroid-linux: \(\(FEX_APP\|FXD_\|VK_\|XDG_RUNTIME_DIR\|TMPDIR\|LANG\)[A-Z_]*=[^ ]*\)\r\?$/\1/p' | tr '\n' ' ')
+$ADB shell am force-stop $PKG
+$ADB logcat -c
+$ADB shell "am start -n $PKG/.MainActivity --es action x" > /dev/null
+until $ADB logcat -d -s fexdroid-display:I | grep -q 'X input connected'; do sleep 5; done
+
+# Output goes to files/sbox/run.log, the engine's own log to files/sbox/game/logs/FEX.log (named
+# after the process, which FEX is). Mesa's X11 swapchain must copy frames in software, as FEXDroid
+# has its own X clients do: the server has no DRI3, and without it presents wait for events that
+# never come.
+CMD="export $FXD_ENV; cd \$FXD_FILES/sbox/game && DISPLAY=:0 MESA_VK_WSI_DEBUG=sw DOTNET_ROOT=\$PWD/bin/dotnet $ENV timeout $TIMEOUT \$FXD_ROOT/usr/bin/FEX ./$EXE $ARGS > ../run.log 2>&1; echo [exit \$?] >> ../run.log"
 $ADB shell "run-as $PKG rm -f files/sbox/run.log files/sbox/game/logs/FEX.log"
-$ADB shell "am start -f 0x10008000 -n $PKG/.MainActivity --es action cmd --es cmd '$CMD'" > /dev/null
-# A cold start takes a while; a second intent before the command runs replaces it. Then open the
-# display until its X server is up
-until $ADB logcat -d -s fexdroid-linux:I | grep -q 'X11-unix/X0'; do sleep 5; done
-until $ADB shell 'ps -A' | grep -q ' Xvfb$'; do
-	$ADB shell "am start -f 0x10008000 -n $PKG/.MainActivity --es action x" > /dev/null
-	sleep 90 # a second start while the first is still coming up kills both X servers
-done
+$ADB shell "run-as $PKG setsid sh -c '$CMD' < /dev/null > /dev/null 2>&1 &"
 
 LOG="run-as $PKG cat files/sbox/game/logs/FEX.log"
 for _ in $(seq 1 $(( TIMEOUT / 15 + 20 ))); do
