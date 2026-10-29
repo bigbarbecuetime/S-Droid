@@ -67,6 +67,7 @@ Not verified against a headset: the passthrough feature name came from a develop
 
 | Where | How | Result |
 |---|---|---|
+| **arm64 Android 12 app** (Redroid in an arm64 VM) | `Runtime/fex/device-test.sh` with a standalone payload: game through FEX, shown in FEXDroid's X display, Vulkan through FEX's thunks to arm64 lavapipe | **Sweeper renders and plays**: a touch drag turns the cube, W walks it (`android-playtest.sh` passes) |
 | **arm64 Android 12 app** (Redroid in an arm64 VM) | `Runtime/fex/device-test.sh`: engine through FEX inside FEXDroid's app sandbox | **dedicated server loads `spacewars`** (`game.load success`, engine at Facepunch master `d3048a7b`) |
 | arm64 Linux VM (QEMU, Neoverse-N1) | engine through FEX 2610 | dedicated server loads `spacewars` |
 | x86-64 Linux, CPU Vulkan (lavapipe) | `Runtime/linux`: a standalone build, no editor | **Sweeper sample renders and plays**: W/S and mouse look move the cube and its camera |
@@ -117,6 +118,29 @@ Runtime/linux/play-test.sh /tmp/sweeper   # Xvfb + openbox + lavapipe; holds W, 
 `play-test.sh` passes when the frame isn't blank, idle frames match, and holding the key changes the view. It fails for an unbound key. To run the game yourself: `DOTNET_ROOT=$PWD/bin/dotnet ./sweeper -windowed -vulkan_allow_cpu`. The engine refuses CPU Vulkan devices without `-vulkan_allow_cpu`. Without a window manager, SDL never takes keyboard focus and the game ignores keys. Sweeper's pink surfaces are 4 editor-generated textures the sample doesn't ship (`textures/generated/imagefile/*.vtex_c`).
 
 ![Sweeper before and after holding W](Runtime/results/linux-x64-sweeper-playtest.png)
+
+### Standalone games on Android
+
+A standalone payload makes `device-test.sh` open FEXDroid's display (its Xvfb, copied onto the app's surface) and start the game on it:
+
+```sh
+EXTRA_CODE=$PWD/Runtime/linux/probe/InputProbe.cs Runtime/linux/make-standalone.sh <s&box game folder> samples/sweeper /tmp/sweeper
+Runtime/fex/make-payload.sh /tmp/sweeper --standalone /tmp/sweeper-payload
+SBOX_TIMEOUT=14400 ADB_SERIAL=127.0.0.1:5556 Runtime/fex/device-test.sh fexdroid-legacy.apk /tmp/sweeper-payload
+XWD=<arm64 xwd> ADB_SERIAL=127.0.0.1:5556 Runtime/fex/android-playtest.sh /tmp/android-play
+```
+
+`android-playtest.sh` plays the game with Android's own input: `input swipe` across the display for mouse look, and `input keyevent` W to walk. The probe compiled into the game reports where the cube is. It passes when the cube turned and then moved, FEXDroid's bridge put new frames on the app's surface, and the X screen changed. On Redroid, the drag turned the cube to yaw -80°, and W moved it by (+97.4, -552.5), which is exactly that heading:
+
+![Sweeper in FEXDroid on arm64 Android, before and after](Runtime/results/android12-arm64-sweeper-playtest.png)
+
+What it took:
+
+- `MESA_VK_WSI_DEBUG=sw`, as FEXDroid sets for its own X clients. Its Xvfb has no DRI3, and without the flag lavapipe's swapchain waits for present events that never come.
+- The display screen started cold. FEXDroid's bridge to the screen stops when its screen takes over from another activity, so the game is started with `run-as`, using the environment FEXDroid's command intent reports. `run-as` processes don't get the app's seccomp filter, so a real device still has to confirm the game under FEX inside the app itself. The server run covers that for the engine.
+- Under FEX the engine names its log `logs/FEX.log`, after the process.
+
+On the emulated device, loading takes about 10 minutes, and the game then runs at well under 1 fps (lavapipe on 4 emulated cores). Input takes effect frames late. A phone or Quest drops the QEMU layer and renders with Turnip, which FEXDroid picks on Adreno GPUs. Redroid's `screencap` doesn't show FEXDroid's surface, even for FEXDroid's own vkcube. That's why the test dumps the X screen with `xwd` (arm64, for example from Ubuntu's `x11-apps`).
 
 Under FEX, CoreCLR needs both `DOTNET_INTERNAL_ThreadSuspendInjection=0` and `DOTNET_EnableWriteXorExecute=0`. Without them, signal-based thread suspension and double-mapped JIT code crash it during startup. The engine's natives are built with `-mavx`, so any emulator must implement AVX correctly. Google's Android emulator doesn't without KVM.
 
