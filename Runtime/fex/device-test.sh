@@ -85,9 +85,11 @@ fi
 # A standalone game needs FEXDroid's X server, which runs while its display screen is open. The
 # command (which outlives the screen it was started from) waits for the server's socket, then the
 # display screen opens and starts it. Output goes to files/sbox/run.log, the engine's own log to
-# files/sbox/game/logs/$EXE.log.
-CMD="until grep -qa @/tmp/.X11-unix/X0 /proc/net/unix; do sleep 2; done; cd \$FXD_FILES/sbox/game && DISPLAY=:0 DOTNET_ROOT=\$PWD/bin/dotnet $ENV timeout $TIMEOUT \$FXD_ROOT/usr/bin/FEX ./$EXE $ARGS > ../run.log 2>&1; echo [exit \$?] >> ../run.log"
-$ADB shell "run-as $PKG rm -f files/sbox/run.log files/sbox/game/logs/$EXE.log"
+# files/sbox/game/logs/FEX.log (named after the process, which FEX is). Mesa's X11 swapchain must
+# copy frames in software, as FEXDroid has its own X clients do: the server has no DRI3, and
+# without it presents wait for events that never come.
+CMD="until grep -qa @/tmp/.X11-unix/X0 /proc/net/unix; do sleep 2; done; cd \$FXD_FILES/sbox/game && DISPLAY=:0 MESA_VK_WSI_DEBUG=sw DOTNET_ROOT=\$PWD/bin/dotnet $ENV timeout $TIMEOUT \$FXD_ROOT/usr/bin/FEX ./$EXE $ARGS > ../run.log 2>&1; echo [exit \$?] >> ../run.log"
+$ADB shell "run-as $PKG rm -f files/sbox/run.log files/sbox/game/logs/FEX.log"
 $ADB shell "am start -f 0x10008000 -n $PKG/.MainActivity --es action cmd --es cmd '$CMD'" > /dev/null
 # A cold start takes a while; a second intent before the command runs replaces it. Then open the
 # display until its X server is up
@@ -97,7 +99,7 @@ until $ADB shell 'ps -A' | grep -q ' Xvfb$'; do
 	sleep 90 # a second start while the first is still coming up kills both X servers
 done
 
-LOG="run-as $PKG cat files/sbox/game/logs/$EXE.log"
+LOG="run-as $PKG cat files/sbox/game/logs/FEX.log"
 for _ in $(seq 1 $(( TIMEOUT / 15 + 20 ))); do
 	sleep 15
 	$ADB shell "$LOG 2> /dev/null; run-as $PKG cat files/sbox/run.log 2> /dev/null" | grep -qE 'game.load (success|fail)|\[exit ' && break

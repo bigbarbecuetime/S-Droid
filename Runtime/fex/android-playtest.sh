@@ -6,15 +6,15 @@
 #
 #   android-playtest.sh <out dir> [seconds to wait for each step, default 120]
 #
-# Passes when the cube turned after the drag, moved after W, and the screen changed.
+# Passes when the cube turned after the drag, moved after W, and the display (not the rest of the
+# screen) shows a picture that changed.
 set -eu
 OUT=$1; WAIT=${2:-120}
 PKG=ro.cobrabm.fexdroid
 ADB="adb ${ADB_SERIAL:+-s $ADB_SERIAL}"
-EXE=${SBOX_EXE:-sweeper}
 mkdir -p "$OUT"
 
-probe() { $ADB shell "run-as $PKG cat files/sbox/game/logs/$EXE.log" | grep -a 'probe frames=' | tail -1; }
+probe() { $ADB shell "run-as $PKG cat files/sbox/game/logs/FEX.log" | grep -a 'probe frames=' | tail -1; }
 field() { echo "$2" | grep -oE "$1=[^ ]+" | cut -d= -f2 | tr -d '\r\t'; }
 shot() { $ADB exec-out screencap -p > "$OUT/$1.png"; }
 # Wait for the probe to report a frame newer than the line given
@@ -28,7 +28,8 @@ echo "start: pos=$(field pos "$P0") yaw=$(field yaw "$P0")"
 # The display is the SurfaceView at the top of FEXDroid's screen; drag along it, slowly
 BOUNDS=$($ADB shell 'uiautomator dump /sdcard/fxd-ui.xml > /dev/null && cat /sdcard/fxd-ui.xml' \
 	| grep -oE 'class="android.view.SurfaceView"[^>]*bounds="[^"]*"' | grep -oE '[0-9]+' | tail -4 | tr '\n' ' ')
-set -- ${BOUNDS:-0 30 320 140}
+set -- ${BOUNDS:-6 19 314 143} # where FEXDroid draws it on a 320x240 screen
+CROP="$(( $3 - $1 ))x$(( $4 - $2 ))+$1+$2"
 Y=$(( ($2 + $4) / 2 )); X0=$(( $1 + ($3 - $1) / 4 )); X1=$(( $1 + ($3 - $1) * 3 / 4 ))
 $ADB shell input swipe $X0 $Y $X1 $Y 4000
 P1=$(next "$P0")
@@ -42,6 +43,9 @@ echo "after W: pos=$(field pos "$P2") yaw=$(field yaw "$P2")"
 
 TURNED=$([ "$(field yaw "$P1")" != "$(field yaw "$P0")" ] && echo yes || echo no)
 MOVED=$([ "$(field pos "$P2")" != "$(field pos "$P1")" ] && echo yes || echo no)
-CHANGED=$(compare -metric AE "$OUT/0.png" "$OUT/1.png" null: 2>&1 || true)
-echo "turned: $TURNED, moved: $MOVED, pixels changed: $CHANGED"
-[ "$TURNED" = yes ] && [ "$MOVED" = yes ] && [ "${CHANGED%% *}" != 0 ] && echo PASS || { echo FAIL; exit 1; }
+convert "$OUT/0.png" -crop "$CROP" +repage "$OUT/display-0.png"; convert "$OUT/1.png" -crop "$CROP" +repage "$OUT/display-1.png"
+LIT=$(convert "$OUT/display-1.png" -format '%[fx:maxima]' info:)
+CHANGED=$(compare -metric RMSE "$OUT/display-0.png" "$OUT/display-1.png" null: 2>&1 | grep -oE '\(([0-9.e-]+)\)' | tr -d '()' || true)
+echo "turned: $TURNED, moved: $MOVED, display brightest pixel: $LIT, display change: $CHANGED"
+python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) > 0.05 and float(sys.argv[2]) > 0.01 else 1)' "$LIT" "${CHANGED:-0}" && SEEN=yes || SEEN=no
+[ "$TURNED" = yes ] && [ "$MOVED" = yes ] && [ "$SEEN" = yes ] && echo PASS || { echo "FAIL (shown on the display: $SEEN)"; exit 1; }
