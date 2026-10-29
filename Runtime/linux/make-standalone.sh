@@ -4,6 +4,8 @@
 #
 #   make-standalone.sh <game dir> <project dir, relative to game dir> <output dir>
 #
+# EXTRA_CODE="a.cs b.cs" compiles more files into the game, such as probe/InputProbe.cs for tests.
+#
 # Needs an engine with engine-patches/ applied (0001 reads standalone.json, 0004 writes the compiled
 # assemblies out) and python3. The output links to the game folder's files rather than copying them.
 # Run the game from the output dir with:
@@ -14,9 +16,11 @@ GAME=$(realpath "$1"); PROJECT=${2%/}; OUT=$3
 BIN=$(mktemp -d); trap 'rm -rf "$BIN"' EXIT
 
 echo "== compile $PROJECT"
-# The server compiles the project while loading it; stop it once the game has loaded
+# The server compiles the project (a copy, with any EXTRA_CODE) while loading it; stop it once the game has loaded
+cp -r "$GAME/$PROJECT" "$BIN/project"
+for f in ${EXTRA_CODE:-}; do cp "$f" "$BIN/project/code/"; done
 LOG=$(mktemp -p "$BIN")
-( cd "$GAME" && SBOX_DUMP_ASSEMBLIES="$BIN/dll" DOTNET_ROOT="$GAME/bin/dotnet" exec timeout 600 ./sbox-server +game "$PROJECT/.sbproj" ) > "$LOG" 2>&1 &
+( cd "$GAME" && SBOX_DUMP_ASSEMBLIES="$BIN/dll" DOTNET_ROOT="$GAME/bin/dotnet" exec timeout 600 ./sbox-server +game "$BIN/project/.sbproj" ) > "$LOG" 2>&1 &
 SERVER=$!
 until grep -qE 'game.load (success|fail)' "$LOG" || ! kill -0 $SERVER 2> /dev/null; do sleep 2; done
 kill $SERVER 2> /dev/null || true; wait $SERVER 2> /dev/null || true

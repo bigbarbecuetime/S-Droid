@@ -12,7 +12,7 @@ apt-get install -y -qq "linux-modules-extra-$(uname -r)" docker.io > /dev/null
 modprobe binder_linux devices=binder,hwbinder,vndbinder
 # Docker Hub rate-limits anonymous pulls; Google's mirror serves the same image
 IMAGE=${REDROID_IMAGE:-mirror.gcr.io/redroid/redroid:12.0.0_64only-latest}
-docker pull -q "$IMAGE"
+docker image inspect "$IMAGE" > /dev/null 2>&1 || docker pull -q "$IMAGE"
 docker rm -f redroid > /dev/null 2>&1 || true
 docker run -itd --privileged --name redroid -v /var/lib/redroid:/data -p 5555:5555 "$IMAGE" \
 	androidboot.redroid_gpu_mode=guest androidboot.redroid_width=320 androidboot.redroid_height=240 \
