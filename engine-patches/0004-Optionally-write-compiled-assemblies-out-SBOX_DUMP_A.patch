@@ -1,0 +1,38 @@
+From ede2eafeaafecb1753abadf618827e9a01c9f883 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 29 Oct 2026 01:09:56 +0000
+Subject: [PATCH 4/4] Optionally write compiled assemblies out
+ (SBOX_DUMP_ASSEMBLIES)
+
+Lets a headless run (the dedicated server) produce the .bin assemblies a standalone build loads,
+without the editor's exporter.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MmKbPyv2FFQWEedBjmgLWR
+---
+ .../Systems/Project/Project/Project.Compiling.cs         | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/engine/Sandbox.Engine/Systems/Project/Project/Project.Compiling.cs b/engine/Sandbox.Engine/Systems/Project/Project/Project.Compiling.cs
+index fea71d8e..f0f3539d 100644
+--- a/engine/Sandbox.Engine/Systems/Project/Project/Project.Compiling.cs
++++ b/engine/Sandbox.Engine/Systems/Project/Project/Project.Compiling.cs
+@@ -404,6 +404,15 @@ public partial class Project
+ 				project.AssemblyFileSystem.WriteAllBytes( $"/.bin/{assembly.Compiler.AssemblyName}.dll", assembly.AssemblyData );
+ 				project.AssemblyFileSystem.WriteAllBytes( $"/.bin/{assembly.Compiler.AssemblyName}.cll", cll );
+ 
++				// SBOX_DUMP_ASSEMBLIES=<dir> writes each compiled assembly out, so a standalone build can be put together
++				// without the editor (headless test pipelines)
++				var dumpDir = Environment.GetEnvironmentVariable( "SBOX_DUMP_ASSEMBLIES" );
++				if ( !string.IsNullOrEmpty( dumpDir ) )
++				{
++					Directory.CreateDirectory( dumpDir );
++					File.WriteAllBytes( Path.Combine( dumpDir, $"{assembly.Compiler.AssemblyName}.dll" ), assembly.AssemblyData );
++				}
++
+ 				if ( project.CacheAssemblies )
+ 				{
+ 					try
+-- 
+2.43.0
+

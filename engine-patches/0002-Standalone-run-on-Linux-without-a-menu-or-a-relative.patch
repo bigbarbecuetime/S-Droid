@@ -1,0 +1,66 @@
+From f4b6f17b49598614e7dbc35fdc169a7164ceb343 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 29 Oct 2026 01:09:56 +0000
+Subject: [PATCH 2/4] Standalone: run on Linux without a menu or a relative
+ assets path
+
+Standalone games have no menu, so StartupScreen had no UI to draw the splash with and threw in
+RootPanel; drop the splash as before when there is no menu UI. LocalFileSystem needs an absolute
+root, and on Linux "assets/" has no drive-relative fallback. Startup failures print the whole
+exception, since the message alone doesn't say where it came from.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MmKbPyv2FFQWEedBjmgLWR
+---
+ engine/Sandbox.AppSystem/AppSystem.cs                        | 3 ++-
+ engine/Sandbox.Engine/Core/Windowing/GameWindow.cs           | 5 +++--
+ .../Standalone/StandaloneGameInstance.cs                     | 3 ++-
+ 3 files changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/engine/Sandbox.AppSystem/AppSystem.cs b/engine/Sandbox.AppSystem/AppSystem.cs
+index bde38e73..7f4fbca9 100644
+--- a/engine/Sandbox.AppSystem/AppSystem.cs
++++ b/engine/Sandbox.AppSystem/AppSystem.cs
+@@ -143,7 +143,8 @@ public class AppSystem
+ 			ErrorReporter.ReportException( e );
+ 			ErrorReporter.Flush();
+ 
+-			Console.WriteLine( $"Error: ({e.GetType()}) {e.Message}" );
++			// The whole exception: a startup failure is undiagnosable from its message alone
++			Console.WriteLine( $"Error: {e}" );
+ 
+ 			CrashShutdown();
+ 
+diff --git a/engine/Sandbox.Engine/Core/Windowing/GameWindow.cs b/engine/Sandbox.Engine/Core/Windowing/GameWindow.cs
+index 21880bb7..3779a2ed 100644
+--- a/engine/Sandbox.Engine/Core/Windowing/GameWindow.cs
++++ b/engine/Sandbox.Engine/Core/Windowing/GameWindow.cs
+@@ -109,8 +109,9 @@ internal sealed partial class GameWindow : IDisposable
+ 		}
+ 		Screen.UpdateFromEngine();
+ 
+-		// The splash carries on over the menu until it's ready to be seen, then fades out
+-		if ( splash.IsDrawable ) StartupScreen.Show( splash );
++		// The splash carries on over the menu until it's ready to be seen, then fades out. Standalone
++		// games have no menu, so no UI to draw it with: they drop the splash as before.
++		if ( splash.IsDrawable && GlobalContext.Menu?.UISystem is not null ) StartupScreen.Show( splash );
+ 		else splash.Dispose();
+ 
+ 		if ( renderingRequested ) InitializeRendering();
+diff --git a/engine/Sandbox.GameInstance/Standalone/StandaloneGameInstance.cs b/engine/Sandbox.GameInstance/Standalone/StandaloneGameInstance.cs
+index ee22d59f..a4e04c18 100644
+--- a/engine/Sandbox.GameInstance/Standalone/StandaloneGameInstance.cs
++++ b/engine/Sandbox.GameInstance/Standalone/StandaloneGameInstance.cs
+@@ -75,7 +75,8 @@ internal partial class StandaloneGameInstance : GameInstance
+ 
+ 		LoadingScreen.Title = $"Loading Resources";
+ 
+-		FileSystem.Mounted.Mount( new LocalFileSystem( Standalone.GamePath ) );
++		// LocalFileSystem needs an absolute root: Linux has no drive-relative fallback for "assets/"
++		FileSystem.Mounted.Mount( new LocalFileSystem( System.IO.Path.GetFullPath( Standalone.GamePath ) ) );
+ 		NativeEngine.FullFileSystem.AddProjectPath( Ident, Standalone.GamePath );
+ 
+ 		NativeEngine.g_pResourceSystem.InvalidateDatabase();
+-- 
+2.43.0
+

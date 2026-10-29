@@ -69,6 +69,7 @@ Not verified against a headset: the passthrough feature name came from a develop
 |---|---|---|
 | **arm64 Android 12 app** (Redroid in an arm64 VM) | `Runtime/fex/device-test.sh`: engine through FEX inside FEXDroid's app sandbox | **dedicated server loads `spacewars`** (`game.load success`, engine at Facepunch master `d3048a7b`) |
 | arm64 Linux VM (QEMU, Neoverse-N1) | engine through FEX 2610 | dedicated server loads `spacewars` |
+| x86-64 Linux, CPU Vulkan (lavapipe) | `Runtime/linux`: a standalone build, no editor | **Sweeper sample renders and plays**: W/S and mouse look move the cube and its camera |
 | x86-64 Android 12L VM (Bliss OS on QEMU) | engine natively, from `adb shell` | dedicated server loads `spacewars` |
 | Quest 3 / arm64 phone | `Runtime/fex/device-test.sh` | not run yet |
 | inside an app on x86-64 Android | `Runtime/host` | blocked: the app seccomp filter kills glibc's `access()` |
@@ -103,13 +104,32 @@ Runtime/fex/device-test.sh fexdroid-legacy.apk /tmp/sbox-payload
 
 Success is a logcat line `game.load success local.spacewars#local`.
 
+### Standalone games on Linux
+
+A device runs a standalone (exported) game. `Runtime/linux` builds one without the editor and plays it headlessly:
+
+```sh
+# with engine-patches/ applied to the engine
+Runtime/linux/make-standalone.sh <s&box game folder> samples/sweeper /tmp/sweeper
+Runtime/linux/play-test.sh /tmp/sweeper   # Xvfb + openbox + lavapipe; holds W, checks the view moved
+```
+
+`play-test.sh` passes when the frame isn't blank, idle frames match, and holding the key changes the view. It fails for an unbound key. To run the game yourself: `DOTNET_ROOT=$PWD/bin/dotnet ./sweeper -windowed -vulkan_allow_cpu`. The engine refuses CPU Vulkan devices without `-vulkan_allow_cpu`. Without a window manager, SDL never takes keyboard focus and the game ignores keys. Sweeper's pink surfaces are 4 editor-generated textures the sample doesn't ship (`textures/generated/imagefile/*.vtex_c`).
+
+![Sweeper before and after holding W](Runtime/results/linux-x64-sweeper-playtest.png)
+
 Under FEX, CoreCLR needs both `DOTNET_INTERNAL_ThreadSuspendInjection=0` and `DOTNET_EnableWriteXorExecute=0`. Without them, signal-based thread suspension and double-mapped JIT code crash it during startup. The engine's natives are built with `-mavx`, so any emulator must implement AVX correctly. Google's Android emulator doesn't without KVM.
 
 ## Engine patches
 
 `engine-patches/` holds engine fixes found along the way, to be sent upstream to [Facepunch/sbox-public](https://github.com/Facepunch/sbox-public). The plugin doesn't need them:
 
-- Standalone games read their manifest from `standalone.json` where the executable has no PE resources (Linux, Android). Rebased onto Facepunch master `d3048a7b`.
+Rebased onto Facepunch master `9aac470e`:
+
+- Standalone games read their manifest from `standalone.json` where the executable has no PE resources (Linux, Android).
+- Standalone games start on Linux. They don't need a menu for the splash screen, and they mount `assets/` by its absolute path.
+- Steam rich presence isn't polled, and doesn't throw every frame, when there's no Steam client.
+- `SBOX_DUMP_ASSEMBLIES=<dir>` writes compiled game assemblies out, so `make-standalone.sh` can build without the editor.
 
 A fix for the dedicated server throwing on local projects without a `Libraries` folder was also here. Facepunch has since made the same fix upstream. `make-payload.sh` still adds an empty `Libraries` folder for older engines.
 

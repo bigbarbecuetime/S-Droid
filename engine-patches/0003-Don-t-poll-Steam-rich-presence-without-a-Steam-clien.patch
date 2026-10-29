@@ -1,0 +1,32 @@
+From a9da468ce142f88f5db9c1bf8a4f06d41bf18596 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 29 Oct 2026 01:09:56 +0000
+Subject: [PATCH 3/4] Don't poll Steam rich presence without a Steam client
+
+ISteamFriends is null when Steam isn't running (or the platform has none), so Poll threw before
+the 5 second poll timer was reset: an exception and stack trace logged every frame.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MmKbPyv2FFQWEedBjmgLWR
+---
+ .../RichPresence/SteamRichPresenceSystem.cs                   | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/engine/Sandbox.GameInstance/RichPresence/SteamRichPresenceSystem.cs b/engine/Sandbox.GameInstance/RichPresence/SteamRichPresenceSystem.cs
+index 7540f1e1..b42b0568 100644
+--- a/engine/Sandbox.GameInstance/RichPresence/SteamRichPresenceSystem.cs
++++ b/engine/Sandbox.GameInstance/RichPresence/SteamRichPresenceSystem.cs
+@@ -29,6 +29,10 @@ internal sealed class SteamRichPresenceSystem : IRichPresenceSystem
+ 
+ 	void IRichPresenceSystem.Poll()
+ 	{
++		// No Steam client (not running, or a platform without one): nothing to tell
++		if ( !Steam.SteamFriends().IsValid )
++			return;
++
+ 		// Friends' menus group everyone sharing a party_id, and use the rest to label it "X's party 2/16"
+ 		if ( PartyRoom.Current is PartyRoom party )
+ 		{
+-- 
+2.43.0
+
